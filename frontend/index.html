@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Product Catalog</title>
+<style>
+  :root {
+    --ink: #1c1b19;
+    --paper: #faf8f4;
+    --line: #e4e0d8;
+    --accent: #b5481f;
+    --muted: #7a766c;
+    --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  header {
+    border-bottom: 1px solid var(--line);
+    padding: 28px 32px 20px;
+    position: sticky;
+    top: 0;
+    background: var(--paper);
+    z-index: 10;
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    color: var(--muted);
+    font-size: 13px;
+    font-family: var(--mono);
+  }
+  .controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+  select, button {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: white;
+    color: var(--ink);
+  }
+  select { cursor: pointer; }
+  button {
+    cursor: pointer;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    font-weight: 600;
+  }
+  button:disabled {
+    background: var(--line);
+    color: var(--muted);
+    cursor: not-allowed;
+  }
+  button.secondary {
+    background: white;
+    color: var(--ink);
+    border: 1px solid var(--line);
+  }
+  main { padding: 24px 32px 60px; max-width: 1100px; margin: 0 auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  thead th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  tbody td {
+    padding: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  tbody tr:hover { background: #f2efe8; }
+  .id-cell { font-family: var(--mono); color: var(--muted); font-size: 12px; }
+  .cat-tag {
+    display: inline-block;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #efe5da;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .price { font-family: var(--mono); font-weight: 600; }
+  .date { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+  .pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 20px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .pag-buttons { display: flex; gap: 8px; }
+  .loading { padding: 40px; text-align: center; color: var(--muted); font-family: var(--mono); }
+  .empty { padding: 60px; text-align: center; color: var(--muted); }
+  .timing { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Product Catalog</h1>
+  <div class="sub" id="statline">loading…</div>
+  <div class="controls">
+    <select id="categorySelect">
+      <option value="">All categories</option>
+    </select>
+    <button class="secondary" id="resetBtn">Back to page 1</button>
+    <span class="timing" id="timing"></span>
+  </div>
+</header>
+
+<main>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Category</th>
+        <th>Price</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="loading" id="loading" style="display:none;">loading…</div>
+  <div class="empty" id="empty" style="display:none;">No products found for this filter.</div>
+
+  <div class="pagination">
+    <span id="pageInfo"></span>
+    <div class="pag-buttons">
+      <button class="secondary" id="prevBtn" disabled>← Prev</button>
+      <button id="nextBtn">Next →</button>
+    </div>
+  </div>
+</main>
+
+<script>
+// Point this at your deployed backend URL. Defaults to localhost for local dev.
+const API_BASE = window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1')
+  ? 'http://localhost:8000'
+  : 'REPLACE_WITH_DEPLOYED_BACKEND_URL';
+
+const PAGE_SIZE = 25;
+
+let cursorStack = [null];   // cursorStack[i] = cursor used to fetch page i+1 (page 1's cursor is null)
+let currentPageIndex = 0;   // 0-based
+let currentCategory = '';
+let currentData = null;
+
+const rowsEl = document.getElementById('rows');
+const loadingEl = document.getElementById('loading');
+const emptyEl = document.getElementById('empty');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const pageInfo = document.getElementById('pageInfo');
+const statline = document.getElementById('statline');
+const timingEl = document.getElementById('timing');
+const categorySelect = document.getElementById('categorySelect');
+const resetBtn = document.getElementById('resetBtn');
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function fmtPrice(p) {
+  return '$' + p.toFixed(2);
+}
+
+async function loadStats() {
+  try {
+    const res = await fetch(`${API_BASE}/api/stats`);
+    const data = await res.json();
+    statline.textContent = `${data.total_products.toLocaleString()} products · newest first · cursor-based pagination`;
+  } catch (e) {
+    statline.textContent = 'Could not reach API — check API_BASE in the script.';
+  }
+}
+
+async function loadCategories() {
+  try {
+    const res = await fetch(`${API_BASE}/api/categories`);
+    const cats = await res.json();
+    for (const c of cats) {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      categorySelect.appendChild(opt);
+    }
+  } catch (e) { /* non-fatal */ }
+}
+
+async function fetchPage(cursor) {
+  const params = new URLSearchParams({ limit: PAGE_SIZE });
+  if (cursor) params.set('cursor', cursor);
+  if (currentCategory) params.set('category', currentCategory);
+
+  const start = performance.now();
+  const res = await fetch(`${API_BASE}/api/products?${params.toString()}`);
+  const elapsed = (performance.now() - start).toFixed(0);
+  timingEl.textContent = `last request: ${elapsed}ms`;
+
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
+function render(data) {
+  rowsEl.innerHTML = '';
+  if (data.items.length === 0) {
+    emptyEl.style.display = 'block';
+  } else {
+    emptyEl.style.display = 'none';
+    for (const p of data.items) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="id-cell">#${p.id}</td>
+        <td>${p.name}</td>
+        <td><span class="cat-tag">${p.category}</span></td>
+        <td class="price">${fmtPrice(p.price)}</td>
+        <td class="date">${fmtDate(p.created_at)}</td>
+      `;
+      rowsEl.appendChild(tr);
+    }
+  }
+
+  pageInfo.textContent = `Page ${currentPageIndex + 1}`;
+  prevBtn.disabled = currentPageIndex === 0;
+  nextBtn.disabled = !data.has_more;
+}
+
+async function goToPage(index, cursor) {
+  loadingEl.style.display = 'block';
+  rowsEl.innerHTML = '';
+  try {
+    const data = await fetchPage(cursor);
+    currentData = data;
+    currentPageIndex = index;
+    render(data);
+  } catch (e) {
+    statline.textContent = 'Error loading products: ' + e.message;
+  } finally {
+    loadingEl.style.display = 'none';
+  }
+}
+
+nextBtn.addEventListener('click', () => {
+  if (!currentData || !currentData.has_more) return;
+  const nextCursor = currentData.next_cursor;
+  // push this cursor for the page we're about to go to
+  if (cursorStack.length === currentPageIndex + 1) {
+    cursorStack.push(nextCursor);
+  }
+  goToPage(currentPageIndex + 1, cursorStack[currentPageIndex + 1]);
+});
+
+prevBtn.addEventListener('click', () => {
+  if (currentPageIndex === 0) return;
+  goToPage(currentPageIndex - 1, cursorStack[currentPageIndex - 1]);
+});
+
+resetBtn.addEventListener('click', () => {
+  cursorStack = [null];
+  goToPage(0, null);
+});
+
+categorySelect.addEventListener('change', (e) => {
+  currentCategory = e.target.value;
+  cursorStack = [null];
+  goToPage(0, null);
+});
+
+// init
+loadStats();
+loadCategories();
+goToPage(0, null);
+</script>
+
+</body>
+</html>
