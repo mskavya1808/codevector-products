@@ -4,8 +4,8 @@ A FastAPI + Postgres backend that lets someone browse ~200,000 products,
 newest first, filter by category, and paginate through them — fast, and
 correctly even while data is being written concurrently.
 
-**Live demo:** `<FILL IN AFTER DEPLOY>`
-**API base:** `<FILL IN AFTER DEPLOY>`
+**Live demo:** `https://codevector-products-1.onrender.com`
+**API base:** `<https://codevector-products-jux8.onrender.com/docs>`
 
 ---
 
